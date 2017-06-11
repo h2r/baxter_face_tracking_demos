@@ -1,5 +1,5 @@
 # baxter_face_tracking_demos
-This demos was created Brown University's h2r Human to Robots Laboratory.
+This demos was created at Brown University's h2r Human to Robots Laboratory.
 
 A collection of face tracking demos for baxter.  To run, you need to have Ein, which you can find here https://github.com/h2r/ein.
 
