@@ -18,7 +18,7 @@ class RotAndTranFaceFollowArm:
         self.MOVEMENT_DENOMINATOR = 24
         # Speed of movement, when translational. (strings/chars of integers
         # only)
-        self.MOVEMENT_SPEED = '2'
+        self.MOVEMENT_SPEED = '1'
 
         self.is_stuck = False
         self.face_count = 0
@@ -26,16 +26,27 @@ class RotAndTranFaceFollowArm:
         # Starts at the end point so that it will see a new face automatically
         self.face_time_counter = 80
 
-        rospy.on_shutdown(self.leave_subs_n_pubs)
-
         # Finding center point
         desired_resolution = (640, 400)
-        # Getting the center of the camera
+
+        # If the arm's camera is not available, the other arm's camera will be
+        # closed.
+        try:
+            CameraController(arm + '_hand_camera')
+        except AttributeError:
+            if arm == 'right':
+                left_cam = CameraController('left_hand_camera')
+                left_cam.close()
+            elif arm == 'left':
+                right_cam = CameraController('right_hand_camera')
+                right_cam.close()
+
         cam = CameraController(arm + '_hand_camera')
-        # resolution = cam.resolution
         cam.resolution = desired_resolution
         cam.open()
         (x, y) = desired_resolution
+
+        # Getting the center of the camera
         self.CENTER_X = x / 2
         self.CENTER_Y = y / 2
 
@@ -50,6 +61,9 @@ class RotAndTranFaceFollowArm:
         self.EYE_CASCADE = cv2.CascadeClassifier(
             'src/baxter_face_tracking_demos/src/haarcascade_eye.xml')
 
+        self.hand_pub = rospy.Publisher(
+            '/ein/' + arm + '/forth_commands', String, queue_size=0)
+        sleep(3)
         self.console_sub = rospy.Subscriber('/ein/' + arm + '/console',
                                             EinConsole, self.callback)
         self.cam_sub = rospy.Subscriber('/cameras/' + arm +
@@ -57,9 +71,8 @@ class RotAndTranFaceFollowArm:
                                         self.follow)
         self.display_pub = rospy.Publisher('/robot/xdisplay', Image,
                                            queue_size=0)
-        self.hand_pub = rospy.Publisher(
-            '/ein/' + arm + '/forth_commands', String, queue_size=0)
-        sleep(3)
+        rospy.on_shutdown(self.leave_subs_n_pubs)
+        
         # Assume starting position
         self.hand_pub.publish(String(starting_pose +
                                      ' createEEPose moveEeToPoseWord'))
@@ -93,7 +106,7 @@ class RotAndTranFaceFollowArm:
 
         # Finding the faces in the image
         faces = self.FACE_CASCADE.detectMultiScale(
-            gray, scaleFactor=1.35, minNeighbors=4, minSize=(10, 10),
+            gray, scaleFactor=1.25, minNeighbors=4, minSize=(10,10),
             flags=cv2.cv.CV_HAAR_SCALE_IMAGE)
 
         cv2.circle(img, (self.CENTER_X, self.CENTER_Y), 3, (0, 255, 0), -1)
@@ -106,14 +119,13 @@ class RotAndTranFaceFollowArm:
             # Have a lighter and darker colored box so that you see it anywhere.
             cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 1)
             cv2.rectangle(img, (x - 1, y - 1), (x + w + 1, y + h + 1),
-                          (119, 0, 0),
-                          1)
+                          (119, 0, 0), 1)
 
             roi_gray = gray[y:y + h, x:x + w]
             roi_color = img[y:y + h, x:x + w]
 
-            eyes = self.EYE_CASCADE.detectMultiScale(roi_gray,
-                                                maxSize=((w / 2), (h / 2)))
+            eyes = self.EYE_CASCADE.detectMultiScale(roi_gray, 
+                scaleFactor=1.1, minNeighbors=2)
 
             for (ex, ey, ew, eh) in eyes:
                 # Have a lighter and darker colored box so that you see it
@@ -134,6 +146,7 @@ class RotAndTranFaceFollowArm:
                     dif_x = temp_dif_x
                     dif_y = temp_dif_y
 
+                # TODO FIX THESE LINES.  MAYBE TAKE OUT THE PART ABOUT CHECKING IF ITS NEAR
                 # Uses the size of the box as a way to see how far away
                 # someone is.  If someone is farther away, they should have a
                 #  wider range where the person can move without the counter
@@ -143,7 +156,7 @@ class RotAndTranFaceFollowArm:
                         self.FACE_RANGE / (3 * w) or abs(self.last_face_y - (
                                 y + (h / 2))) > self.FACE_RANGE * \
                         self.FACE_RANGE * self.FACE_RANGE / (3 * h):
-
+                # if self.face_time_counter == 80:
                     self.face_count += 1
                     self.last_face_x = (x + (w / 2))
                     self.last_face_y = (y + (h / 2))

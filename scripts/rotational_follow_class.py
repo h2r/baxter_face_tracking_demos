@@ -25,12 +25,24 @@ class RotationalFollowArm:
 
         # Finding center point
         desired_resolution = (640, 400)
-        # Getting the center of the camera
+
+        # If the arm's camera is not available, the other arm's camera will be
+        # closed.
+        try:
+            CameraController(arm + '_hand_camera')
+        except AttributeError:
+            if arm == 'right':
+                left_cam = CameraController('left_hand_camera')
+                left_cam.close()
+            elif arm == 'left':
+                right_cam = CameraController('right_hand_camera')
+                right_cam.close()
+
         cam = CameraController(arm + '_hand_camera')
-        # resolution = cam.resolution
         cam.resolution = desired_resolution
         cam.open()
 
+        # Getting the center of the camera
         (x, y) = desired_resolution
         self.CENTER_X = x / 2
         self.CENTER_Y = y / 2
@@ -79,7 +91,7 @@ class RotationalFollowArm:
 
         # Finding the faces in the image
         faces = self.FACE_CASCADE.detectMultiScale(
-            gray, scaleFactor=1.35, minNeighbors=4, minSize=(10, 10),
+            gray, scaleFactor=1.25, minNeighbors=4, minSize=(10,10),
             flags=cv2.cv.CV_HAAR_SCALE_IMAGE)
 
         cv2.circle(img, (self.CENTER_X, self.CENTER_Y), 3, (0, 255, 0), -1)
@@ -98,8 +110,8 @@ class RotationalFollowArm:
             roi_gray = gray[y:y + h, x:x + w]
             roi_color = img[y:y + h, x:x + w]
 
-            eyes = self.EYE_CASCADE.detectMultiScale(roi_gray,
-                                                     maxSize=((w / 2), (h / 2)))
+            eyes = self.EYE_CASCADE.detectMultiScale(roi_gray, 
+                scaleFactor=1.1, minNeighbors=2)
 
             for (ex, ey, ew, eh) in eyes:
                 # Have a lighter and darker colored box so that you see it

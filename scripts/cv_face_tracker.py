@@ -46,6 +46,11 @@ def send(data):
 
     msg = CvBridge().cv2_to_imgmsg(img, encoding='bgr8')
 
+    cv2.imshow('img', img)
+    cv2.moveWindow('img', 0, 0)
+    cv2.waitKey(1500)
+    cv2.destroyAllWindows()
+
     display_pub.publish(msg)
 
 

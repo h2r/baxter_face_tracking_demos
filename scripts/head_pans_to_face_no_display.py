@@ -8,7 +8,7 @@ from baxter_interface import CameraController
 from math import pi
 
 
-class HeadPan:
+class HeadPanNoDisplay:
     def __init__(self):
 
         # This checks if the head camera is open.  If it isn't, this will
@@ -40,10 +40,6 @@ class HeadPan:
         self.EYE_CASCADE = cv2.CascadeClassifier(
             'src/baxter_face_tracking_demos/src/haarcascade_eye.xml')
 
-        # Publisher for Baxter's head display
-        self.display_pub = rospy.Publisher('/robot/xdisplay', Image,
-                                           queue_size=0)
-
         self.subscription = rospy.Subscriber('/cameras/head_camera/image',
                                              Image, self.send)
         rospy.on_shutdown(self.leave_subs_n_pubs)
@@ -51,7 +47,6 @@ class HeadPan:
     def leave_subs_n_pubs(self):
         self.head.set_pan(angle=0.)
         self.subscription.unregister()
-        self.display_pub.unregister()
 
     def send(self, data):
 
@@ -71,24 +66,13 @@ class HeadPan:
         # Iterating through all faces
         for (x, y, w, h) in faces:
 
-            # Have a lighter and darker colored box so that you see it anywhere.
-            cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 1)
-            cv2.rectangle(img, (x - 1, y - 1), (x + w + 1, y + h + 1),
-                          (119, 0, 0), 1)
             roi_gray = gray[y:y + h, x:x + w]
-            roi_color = img[y:y + h, x:x + w]
 
             # Finding eyes inside the face box
             eyes = self.EYE_CASCADE.detectMultiScale(roi_gray, 
                 scaleFactor=1.1, minNeighbors=2)
             for (ex, ey, ew, eh) in eyes:
-                # Have a lighter and darker colored box so that you see it
-                # anywhere.
-                cv2.rectangle(roi_color, (ex, ey), (ex + ew, ey + eh),
-                              (0, 255, 0), 1)
-                cv2.rectangle(roi_color,
-                              (ex - 1, ey - 1), (ex + ew + 1, ey + eh + 1),
-                              (11, 86, 11), 1)
+
 
                 temp_dif_x = (x + (w / 2)) - self.CENTER_X
                 # If the face is closer than the last one found, then set it
@@ -114,17 +98,12 @@ class HeadPan:
                     angle=cur_pan + -1 * (dif_x * (self.FOV / 2)) /
                                     self.CENTER_X)
 
-        msg = CvBridge().cv2_to_imgmsg(img, encoding='bgr8')
-
-        self.display_pub.publish(msg)
-
-
 def track():
     # Creating the node
-    rospy.init_node('head_pans_to_face', anonymous=True)
+    rospy.init_node('head_pans_to_face_no_display', anonymous=True)
 
     # Creating the class for this
-    HeadPan()
+    HeadPanNoDisplay()
 
     rospy.spin()
 

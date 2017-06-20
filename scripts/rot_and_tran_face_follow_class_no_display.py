@@ -6,18 +6,21 @@ from baxter_interface import CameraController
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 from time import sleep
+from ein.msg import EinConsole
 from sys import maxint
 
 
-class TranslationalFollowArm:
+class RotAndTranFaceFollowArmNoDisplay:
     def __init__(self, arm, starting_pose):
         # Range away from center you want the arm to stop within
         self.FACE_RANGE = 50
+        # Denominator for movement, when rotational.
+        self.MOVEMENT_DENOMINATOR = 24
         # Speed of movement, when translational. (strings/chars of integers
         # only)
-        self.MOVEMENT_SPEED = '2'
+        self.MOVEMENT_SPEED = '1'
 
-        # Number of faces seen
+        self.is_stuck = False
         self.face_count = 0
 
         # Starts at the end point so that it will see a new face automatically
@@ -41,8 +44,6 @@ class TranslationalFollowArm:
         cam = CameraController(arm + '_hand_camera')
         cam.resolution = desired_resolution
         cam.open()
-        cam.resolution = desired_resolution
-        cam.open()
         (x, y) = desired_resolution
 
         # Getting the center of the camera
@@ -53,24 +54,24 @@ class TranslationalFollowArm:
         self.last_face_x = -maxint
         self.last_face_y = -maxint
 
+
         self.FACE_CASCADE = cv2.CascadeClassifier(
             'src/baxter_face_tracking_demos/src' +
             '/haarcascade_frontalface_default.xml')
         self.EYE_CASCADE = cv2.CascadeClassifier(
             'src/baxter_face_tracking_demos/src/haarcascade_eye.xml')
 
-        self.cam_sub = rospy.Subscriber('/cameras/' + arm +
-                                        '_hand_camera/image', Image,
-                                        self.follow)
-        self.display_pub = rospy.Publisher('/robot/xdisplay', Image,
-                                           queue_size=0)
         self.hand_pub = rospy.Publisher(
             '/ein/' + arm + '/forth_commands', String, queue_size=0)
         sleep(3)
+        self.console_sub = rospy.Subscriber('/ein/' + arm + '/console',
+                                            EinConsole, self.callback)
+        self.cam_sub = rospy.Subscriber('/cameras/' + arm +
+                                        '_hand_camera/image', Image,
+                                        self.follow)
 
-        # Shutdown procedure
         rospy.on_shutdown(self.leave_subs_n_pubs)
-
+        
         # Assume starting position
         self.hand_pub.publish(String(starting_pose +
                                      ' createEEPose moveEeToPoseWord'))
@@ -83,14 +84,18 @@ class TranslationalFollowArm:
                                      ' 1024 1024 2048 fixCameraLighting'))
 
     def leave_subs_n_pubs(self):
-        # The method that is ran on shutdown.  It goes to home position and
-        # unsubscribes from every publisher and subscriber
         self.hand_pub.publish(String('goHome'))
         self.cam_sub.unregister()
+        self.console_sub.unregister()
         self.hand_pub.unregister()
-        self.display_pub.unregister()
+
+    def callback(self, msg):
+        if "ikClient says pose request is invalid." in msg.msg:
+            self.is_stuck = not self.is_stuck
 
     def follow(self, data):
+
+
 
         # Converting the data to an image for OpenCV
         img = CvBridge().imgmsg_to_cv2(data, desired_encoding='bgr8')
@@ -102,33 +107,18 @@ class TranslationalFollowArm:
             gray, scaleFactor=1.25, minNeighbors=4, minSize=(10,10),
             flags=cv2.cv.CV_HAAR_SCALE_IMAGE)
 
-        cv2.circle(img, (self.CENTER_X, self.CENTER_Y), 3, (0, 255, 0), -1)
-
         known_face_center = False
         dif_x = self.CENTER_X * 2
         dif_y = self.CENTER_Y * 2
 
         for (x, y, w, h) in faces:
-            # Have a lighter and darker colored box so that you see it anywhere.
-            cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 1)
-            cv2.rectangle(img, (x - 1, y - 1), (x + w + 1, y + h + 1),
-                          (119, 0, 0),
-                          1)
 
             roi_gray = gray[y:y + h, x:x + w]
-            roi_color = img[y:y + h, x:x + w]
 
             eyes = self.EYE_CASCADE.detectMultiScale(roi_gray, 
                 scaleFactor=1.1, minNeighbors=2)
 
             for (ex, ey, ew, eh) in eyes:
-                # Have a lighter and darker colored box so that you see it
-                # anywhere.
-                cv2.rectangle(roi_color, (ex, ey), (ex + ew, ey + eh),
-                              (0, 255, 0),
-                              1)
-                cv2.rectangle(roi_color, (ex - 1, ey - 1),
-                              (ex + ew + 1, ey + eh + 1), (11, 86, 11), 1)
 
                 temp_dif_x = (x + (w / 2)) - self.CENTER_X
                 temp_dif_y = (y + (h / 2)) - self.CENTER_Y
@@ -140,14 +130,17 @@ class TranslationalFollowArm:
                     dif_x = temp_dif_x
                     dif_y = temp_dif_y
 
+                # TODO FIX THESE LINES.  MAYBE TAKE OUT THE PART ABOUT CHECKING IF ITS NEAR
                 # Uses the size of the box as a way to see how far away
                 # someone is.  If someone is farther away, they should have a
                 #  wider range where the person can move without the counter
                 # increasing.
-                if abs(self.last_face_x - (x + (w / 2))) > self.FACE_RANGE * \
-                        self.FACE_RANGE * self.FACE_RANGE / (3 * w) or abs(
-                        self.last_face_y - (y + (h / 2))) > self.FACE_RANGE * \
+                if self.face_time_counter == 80 or abs(self.last_face_x - (x +
+                        (w / 2))) > self.FACE_RANGE * self.FACE_RANGE * \
+                        self.FACE_RANGE / (3 * w) or abs(self.last_face_y - (
+                                y + (h / 2))) > self.FACE_RANGE * \
                         self.FACE_RANGE * self.FACE_RANGE / (3 * h):
+                # if self.face_time_counter == 80:
                     self.face_count += 1
                     self.last_face_x = (x + (w / 2))
                     self.last_face_y = (y + (h / 2))
@@ -158,35 +151,51 @@ class TranslationalFollowArm:
         if self.face_time_counter < 80:
             self.face_time_counter += 1
 
-        # Adding face counter to the screen
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(img, "Face Count: " + str(self.face_count),
-                    (0, self.CENTER_Y * 2 - 10),
-                    font, 2, (255, 255, 255), 2)
-
         # If it saw a face, see if the arm needs to move
         if known_face_center:
 
             # If out of face_range, the arm will try to center itself on the
             # face
-            if dif_x > self.FACE_RANGE:
-                self.hand_pub.publish(String(
-                    "( localYDown ) " + self.MOVEMENT_SPEED +
-                    " replicateWord"))
-            elif dif_x < -self.FACE_RANGE:
-                self.hand_pub.publish(String(
-                    "( localYUp ) " + self.MOVEMENT_SPEED +
-                    " replicateWord"))
+            if self.is_stuck:
+                # Translational
+                if dif_x > self.FACE_RANGE:
+                    self.hand_pub.publish(String(
+                        "( localYDown ) " + self.MOVEMENT_SPEED +
+                        " replicateWord"))
+                elif dif_x < -self.FACE_RANGE:
+                    self.hand_pub.publish(String(
+                        "( localYUp ) " + self.MOVEMENT_SPEED +
+                        " replicateWord"))
 
-            if dif_y > self.FACE_RANGE:
-                self.hand_pub.publish(String(
-                    "( localXUp ) " + self.MOVEMENT_SPEED +
-                    " replicateWord"))
-            elif dif_y < -self.FACE_RANGE:
-                self.hand_pub.publish(String(
-                    "( localXDown ) " + self.MOVEMENT_SPEED +
-                    " replicateWord"))
+                if dif_y > self.FACE_RANGE:
+                    self.hand_pub.publish(String(
+                        "( localXUp ) " + self.MOVEMENT_SPEED +
+                        " replicateWord"))
+                elif dif_y < -self.FACE_RANGE:
+                    self.hand_pub.publish(String(
+                        "( localXDown ) " + self.MOVEMENT_SPEED +
+                        " replicateWord"))
 
-        msg = CvBridge().cv2_to_imgmsg(img, encoding='bgr8')
+            else:
+                # Rotational
+                if dif_x > self.FACE_RANGE:
+                    self.hand_pub.publish(
+                        String('( oXUp ) ' + str(
+                            int(dif_x / self.MOVEMENT_DENOMINATOR)) +
+                               ' replicateWord'))
+                elif dif_x < -self.FACE_RANGE:
+                    self.hand_pub.publish(
+                        String('( oXDown ) ' + str(
+                            int(abs(dif_x / self.MOVEMENT_DENOMINATOR))) +
+                               ' replicateWord'))
 
-        self.display_pub.publish(msg)
+                if dif_y > self.FACE_RANGE:
+                    self.hand_pub.publish(
+                        String('( oYUp ) ' + str(
+                            int(dif_y / self.MOVEMENT_DENOMINATOR)) +
+                               ' replicateWord'))
+                elif dif_y < -self.FACE_RANGE:
+                    self.hand_pub.publish(
+                        String('( oYDown ) ' + str(
+                            int(abs(dif_y / self.MOVEMENT_DENOMINATOR))) +
+                               ' replicateWord'))
